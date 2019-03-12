@@ -504,7 +504,7 @@ cleanup:
 }
 
 static int
-wireless_change_cb(sr_session_ctx_t *session, const char *module_name, sr_notif_event_t event, uint64_t request_id, void *private_ctx)
+wireless_change_cb(sr_session_ctx_t *session, const char *module_name, sr_notif_event_t event, void *private_ctx)
 {
     struct plugin_ctx *pctx = (struct plugin_ctx*) private_ctx;
     sr_change_iter_t *it = NULL;
@@ -528,7 +528,7 @@ wireless_change_cb(sr_session_ctx_t *session, const char *module_name, sr_notif_
                                                  &oper, &old_value, &new_value))) {
         if (SR_OP_CREATED == oper || SR_OP_MODIFIED == oper) {
             rc = sysrepo_to_uci(session, pctx->uctx, new_value);
-            sr_print_val(new_value);
+           	sr_print_val(new_value);
         }
 
         sr_free_val(old_value);
@@ -536,7 +536,7 @@ wireless_change_cb(sr_session_ctx_t *session, const char *module_name, sr_notif_
     }
     INF_MSG("\n\n ========== END OF CHANGES =======================================\n\n");
 
-    if (SR_EV_APPLY == event) { 
+    if (SR_EV_APPLY == event) {
       restart_network_over_ubus(2);
       rc = sr_copy_config(pctx->startup_session, module_name, SR_DS_RUNNING, SR_DS_STARTUP);
       return rc;
