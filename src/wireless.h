@@ -1,7 +1,6 @@
 #include "sysrepo.h"
 #include "sysrepo/values.h"
 #include "sysrepo/xpath.h"
-#include "sysrepo/plugins.h"
 
 #include "uci.h"
 
@@ -12,7 +11,6 @@
 #define MAX_INTERFACE_NAME 20
 
 #define ARR_SIZE(a) sizeof a / sizeof a[0]
-
 
 struct plugin_ctx {
   struct uci_context *uctx;
