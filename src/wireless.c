@@ -599,7 +599,7 @@ static int wireless_change_cb(sr_session_ctx_t *session,
   if (SR_EV_DONE == event) {
     restart_network_over_ubus(2);
     rc = sr_copy_config(pctx->startup_session, module_name, SR_DS_RUNNING,
-                        SR_DS_STARTUP);
+                        SR_DS_STARTUP, 0);
   }
 
 cleanup:
@@ -676,7 +676,7 @@ static int init_sysrepo_data(struct plugin_ctx *pctx,
         transform_default_value(&table_wireless[i], &uci_val);
         transform_bool_value(&table_wireless[i], &uci_val);
         SR_CHECK_RET(rc, exit, "uci getitem: %s %s", ucipath, sr_strerror(rc));
-        rc = sr_set_item_str(session, xpath, uci_val, SR_EDIT_DEFAULT);
+        rc = sr_set_item_str(session, xpath, uci_val, NULL, SR_EDIT_DEFAULT);
         SR_CHECK_RET(rc, exit, "sr setitem: %s %s %s", sr_strerror(rc), xpath,
                      uci_val);
       }
@@ -705,7 +705,7 @@ static int init_sysrepo_data(struct plugin_ctx *pctx,
         transform_default_value(&table_interface[i], &uci_val);
         transform_bool_value(&table_interface[i], &uci_val);
         SR_CHECK_RET(rc, exit, "uci getitem: %s %s", ucipath, sr_strerror(rc));
-        rc = sr_set_item_str(session, xpath, uci_val, SR_EDIT_DEFAULT);
+        rc = sr_set_item_str(session, xpath, uci_val, NULL, SR_EDIT_DEFAULT);
         SR_CHECK_RET(rc, exit, "sr setitem: %s %s %s", sr_strerror(rc), xpath,
                      uci_val);
       }
@@ -737,7 +737,7 @@ static int init_sysrepo_data(struct plugin_ctx *pctx,
     }*/
   }
 
-  rc = sr_apply_changes(session);
+  rc = sr_apply_changes(session, 0);
   SR_CHECK_RET(rc, exit, "Couldn't apply changes initial interfaces: %s",
                sr_strerror(rc));
 
@@ -984,7 +984,7 @@ int sr_plugin_init_cb(sr_session_ctx_t *session, void **private_ctx) {
                sr_strerror(rc));
 
   rc = sr_copy_config(ctx->startup_session, YANG_MODEL, SR_DS_STARTUP,
-                      SR_DS_RUNNING);
+                      SR_DS_RUNNING, 0);
   if (SR_ERR_OK != rc) {
     WRN_MSG("Failed to copy running datastore to startup");
     /* TODO handle this error */
