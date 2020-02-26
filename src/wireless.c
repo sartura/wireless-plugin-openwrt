@@ -737,7 +737,7 @@ static int init_sysrepo_data(struct plugin_ctx *pctx,
     }*/
   }
 
-  rc = sr_apply_changes(session, 0);
+  rc = sr_apply_changes(session, 0, 0);
   SR_CHECK_RET(rc, exit, "Couldn't apply changes initial interfaces: %s",
                sr_strerror(rc));
 
