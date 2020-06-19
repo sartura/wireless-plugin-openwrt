@@ -23,6 +23,14 @@
 #define WIRELESS_DEVICES_STATE_DATA_PATH "/" WIRELESS_YANG_MODEL ":devices-state"
 #define WIRELESS_DEVICES_STATE_DATA_XPATH_TEMPLATE WIRELESS_DEVICES_STATE_DATA_PATH "/device[name='%s']"
 
+typedef char *(*transform_data_cb)(const char *);
+
+typedef struct {
+	const char *value_name;
+	const char *xpath_template;
+	transform_data_cb transform_data;
+} wireless_ubus_json_transform_table_t;
+
 int wireless_plugin_init_cb(sr_session_ctx_t *session, void **private_data);
 void wireless_plugin_cleanup_cb(sr_session_ctx_t *session, void *private_data);
 
@@ -37,6 +45,11 @@ static int wireless_state_data_cb(sr_session_ctx_t *session, const char *module_
 static bool wireless_running_datastore_is_empty_check(void);
 static int wireless_uci_data_load(sr_session_ctx_t *session);
 static char *wireless_xpath_get(const struct lyd_node *node);
+
+static void wireless_ubus(const char *ubus_json, srpo_ubus_result_values_t *values);
+static int store_ubus_values_to_datastore(sr_session_ctx_t *session, const char *request_xpath, srpo_ubus_result_values_t *values, struct lyd_node **parent);
+
+static void wireless_ubus_restart_network(int wait_time);
 
 srpo_uci_xpath_uci_template_map_t wireless_xpath_uci_path_template_map[] = {
 	// device
@@ -84,16 +97,16 @@ srpo_uci_xpath_uci_template_map_t wireless_xpath_uci_path_template_map[] = {
 	// 	transform_data_boolean_to_zero_one_transform, transform_data_zero_one_to_boolean_transform, true, true},
 	{WIRELESS_DEVICE_XPATH_TEMPLATE "/doth",		"wireless.%s.doth", NULL, NULL, NULL, false, false},
 
-	/*
+        /*
 	// *steering
-        {"/" WIRELESS_YANG_MODEL ":apsteering/enabled",		 "wireless.apsteering.enabled", NULL,
+	{"/" WIRELESS_YANG_MODEL ":apsteering/enabled",		 "wireless.apsteering.enabled", NULL,
 		transform_data_boolean_to_zero_one_transform, transform_data_zero_one_to_boolean_transform, true, true},
 	{"/" WIRELESS_YANG_MODEL ":apsteering/monitor_interval", "wireless.apsteering.monitor_interval", NULL, NULL, NULL, false, false},
 	{"/" WIRELESS_YANG_MODEL ":apsteering/rssi_threshold",	 "wireless.apsteering.rssi_threshold", NULL, NULL, NULL, false, false},
 	{"/" WIRELESS_YANG_MODEL ":apsteering/reassoc_timer",	 "wireless.apsteering.reassoc_timer", NULL, NULL, NULL, false, false},
 	{"/" WIRELESS_YANG_MODEL ":apsteering/retry_interval",	 "wireless.apsteering.retry_interval", NULL, NULL, NULL, false, false},
 
-        {"/" WIRELESS_YANG_MODEL ":bandsteering/enabled",	 "wireless.bandsteering.enabled", NULL,
+	{"/" WIRELESS_YANG_MODEL ":bandsteering/enabled",	 "wireless.bandsteering.enabled", NULL,
 		transform_data_boolean_to_zero_one_transform, transform_data_zero_one_to_boolean_transform, true, true},
 	{"/" WIRELESS_YANG_MODEL ":bandsteering/policy",	 "wireless.bandsteering.policy", NULL,
 		transform_data_boolean_to_zero_one_transform, transform_data_zero_one_to_boolean_transform, true, true},
@@ -136,7 +149,14 @@ srpo_uci_xpath_uci_template_map_t wireless_xpath_uci_path_unnamed_template_map[]
 		transform_data_boolean_to_zero_one_transform, transform_data_zero_one_to_boolean_transform, true, true},
 };
 
-static const char *wireless_uci_sections[] = {"wifi-status", "wifi-device"/*, "bandsteering", "apsteering"*/};
+static wireless_ubus_json_transform_table_t wireless_transform_table[] = {
+	{"channel",	WIRELESS_DEVICES_STATE_DATA_XPATH_TEMPLATE "/channel",		NULL},
+	{"ssid", 	WIRELESS_DEVICES_STATE_DATA_XPATH_TEMPLATE "/ssid",		NULL},
+	{"encryption",	WIRELESS_DEVICES_STATE_DATA_XPATH_TEMPLATE "/encryption",	NULL/*transform_data_encryption_ubus*/},
+	{"radio",	WIRELESS_DEVICES_STATE_DATA_XPATH_TEMPLATE "/up",		transform_data_zero_one_to_boolean_ubus},
+};
+
+static const char *wireless_uci_sections[] = {"wifi-status", "wifi-device", "bandsteering", "apsteering"};
 static const char *wireless_uci_unnamed_sections[] = {"wifi-iface"};
 
 static struct {
@@ -432,6 +452,8 @@ static int wireless_module_change_cb(sr_session_ctx_t *session, const char *modu
 	}
 
 	if (event == SR_EV_DONE) {
+		wireless_ubus_restart_network(2);
+
 		error = sr_copy_config(startup_session, WIRELESS_YANG_MODEL, SR_DS_RUNNING, 0, 0);
 		if (error) {
 			SRP_LOG_ERR("sr_copy_config error (%d): %s", error, sr_strerror(error));
@@ -636,12 +658,159 @@ static char *wireless_xpath_get(const struct lyd_node *node)
 	}
 }
 
+static void wireless_ubus_restart_network(int wait_time)
+{
+	srpo_ubus_result_values_t *values = NULL;
+	srpo_ubus_call_data_t ubus_call_data = {
+		.lookup_path = "uci", .method = "commit", .transform_data_cb = NULL,
+		.timeout = (wait_time * 1000), .json_call_arguments = NULL
+	};
+	struct json_object *json_obj;
+	int error = SRPO_UBUS_ERR_OK;
+
+	srpo_ubus_init_result_values(&values);
+
+	json_obj = json_object_new_object();
+	json_object_object_add(json_obj, "config", json_object_new_string("wireless"));
+
+	ubus_call_data.json_call_arguments = json_object_get_string(json_obj);
+	if (!ubus_call_data.json_call_arguments)
+		goto cleanup;
+
+	error = srpo_ubus_call(values, &ubus_call_data);
+	if (error != SRPO_UBUS_ERR_OK) {
+		SRP_LOG_ERR("srpo_ubus_data_get error (%d): %s", error, srpo_ubus_error_description_get(error));
+		goto cleanup;
+	}
+
+cleanup:
+	json_object_put(json_obj);
+	srpo_ubus_free_result_values(values);
+	values = NULL;
+}
+
 static int wireless_state_data_cb(sr_session_ctx_t *session, const char *module_name,
 				  const char *path, const char *request_xpath,
 				  uint32_t request_id, struct lyd_node **parent,
 				  void *private_data)
 {
-	return SR_ERR_CALLBACK_FAILED;
+	int error = SRPO_UBUS_ERR_OK;
+	sr_val_t *device_list = NULL;
+	size_t device_list_size = 0;
+	struct json_object *json_obj;
+	srpo_ubus_result_values_t *values = NULL;
+	srpo_ubus_call_data_t ubus_call_data = {
+		.lookup_path = "network.wireless", .method = "status",
+		.transform_data_cb = wireless_ubus, .timeout = 0,
+		.json_call_arguments = NULL
+	};
+
+	if (strcmp(path, WIRELESS_DEVICES_STATE_DATA_PATH) != 0 && strcmp(path, "*") != 0)
+		return SR_ERR_OK;
+
+	error = sr_get_items(session, "/" WIRELESS_YANG_MODEL ":devices/device/name", 0, SR_OPER_DEFAULT,
+			     &device_list, &device_list_size);
+	if (error != SR_ERR_OK) {
+		goto out;
+	}
+
+	for (size_t j = 0; j < device_list_size; j++) {
+		srpo_ubus_init_result_values(&values);
+
+		json_obj = json_object_new_object();
+		json_object_object_add(json_obj, "status", json_object_new_string(device_list[j].data.string_val));
+
+		ubus_call_data.json_call_arguments = json_object_get_string(json_obj);
+
+		error = srpo_ubus_call(values, &ubus_call_data);
+		if (error != SRPO_UBUS_ERR_OK) {
+			SRP_LOG_ERR("srpo_ubus_call error (%d): %s", error, srpo_ubus_error_description_get(error));
+			goto out;
+		}
+
+		error = store_ubus_values_to_datastore(session, request_xpath, values, parent);
+		// TODO fix error handling here
+		if (error) {
+			SRP_LOG_ERR("store_ubus_values_to_datastore error (%d)", error);
+			goto out;
+		}
+
+		json_object_put(json_obj);
+		srpo_ubus_free_result_values(values);
+		values = NULL;
+	}
+
+out:
+	sr_free_val(device_list);
+
+	if (values) {
+		srpo_ubus_free_result_values(values);
+	}
+
+	return error ? SR_ERR_CALLBACK_FAILED : SR_ERR_OK;
+}
+
+static void wireless_ubus(const char *ubus_json, srpo_ubus_result_values_t *values)
+{
+	json_object *result = NULL;
+	json_object *device = NULL;
+	json_object *value = NULL;
+	const char *value_string = NULL;
+	const char *device_string = NULL;
+	char *string = NULL;
+	srpo_ubus_error_e error = SRPO_UBUS_ERR_OK;
+
+	result = json_tokener_parse(ubus_json);
+
+	json_object_object_get_ex(result, "wldev", &device);
+	device_string = json_object_get_string(device);
+
+	for (size_t i = 0; i < ARRAY_SIZE(wireless_transform_table); i++) {
+		json_object_object_get_ex(result, wireless_transform_table[i].value_name, &value);
+		if (value == NULL)
+			continue;
+
+		value_string = json_object_get_string(value);
+
+		/* The YANG model transformations are sometimes required. */
+		if (wireless_transform_table[i].transform_data) {
+			string = (wireless_transform_table[i].transform_data)(value_string);
+		} else {
+			string = xstrdup(value_string);
+		}
+
+		error = srpo_ubus_result_values_add(values, string, strlen(string),
+						    wireless_transform_table[i].xpath_template,
+						    strlen(wireless_transform_table[i].xpath_template),
+						    device_string, strlen(device_string));
+		if (error != SRPO_UBUS_ERR_OK) {
+			goto cleanup;
+		}
+	}
+
+cleanup:
+	FREE_SAFE(string);
+
+	json_object_put(result);
+	return;
+}
+
+static int store_ubus_values_to_datastore(sr_session_ctx_t *session, const char *request_xpath, srpo_ubus_result_values_t *values, struct lyd_node **parent)
+{
+	const struct ly_ctx *ly_ctx = NULL;
+	if (*parent == NULL) {
+		ly_ctx = sr_get_context(sr_session_get_connection(session));
+		if (ly_ctx == NULL) {
+			return -1;
+		}
+		*parent = lyd_new_path(NULL, ly_ctx, request_xpath, NULL, 0, 0);
+	}
+
+	for (size_t i = 0; i < values->num_values; i++) {
+		lyd_new_path(*parent, NULL, values->values[i].xpath, values->values[i].value, 0, 0);
+	}
+
+	return 0;
 }
 
 

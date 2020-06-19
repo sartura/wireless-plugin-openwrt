@@ -32,4 +32,7 @@ char *transform_data_zero_one_to_boolean_negated_transform(const char *value, vo
 // char *transform_data_band_to_freqband_transform(const char *value, void *private_data);
 // char *transform_data_freqband_to_band_transform(const char *value, void *private_data);
 
+// char *transform_data_encryption_ubus(const char *value);
+char *transform_data_zero_one_to_boolean_ubus(const char *value);
+
 #endif /* TRANSFORM_DATA_H_ONCE */
