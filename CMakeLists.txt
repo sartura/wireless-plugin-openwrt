@@ -9,8 +9,8 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 include_directories(${CMAKE_SOURCE_DIR}/src/)
 
 set(SOURCES
-    src/operational.c
     src/wireless.c
+    src/transform_data.c
 )
 
 # git SHA1 hash
@@ -58,6 +58,7 @@ find_package(UCI REQUIRED)
 find_package(LIBUBOX REQUIRED)
 find_package(LIBUBUS REQUIRED)
 find_package(JSON-C REQUIRED)
+find_package(SRPO REQUIRED)
 
 
 target_link_libraries(
@@ -68,6 +69,7 @@ target_link_libraries(
     ${LIBUBOX_LIBRARIES}
     ${LIBUBUS_LIBRARIES}
     ${JSON-C_LIBRARIES}
+    ${SRPO_LIBRARIES}
 )
 
 include_directories(
@@ -77,4 +79,5 @@ include_directories(
     ${LIBUBOX_INCLUDE_DIR}
     ${LIBUBUS_INCLUDE_DIR}
     ${JSON-C_INCLUDE_DIR}
+    ${SRPO_INCLUDE_DIRS}
 )
