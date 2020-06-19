@@ -41,3 +41,25 @@ char *transform_data_zero_one_to_boolean_negated_transform(const char *value, vo
 		return xstrdup("true");
 	}
 }
+
+// char *transform_data_freqband_to_band_transform(const char *value, void *private_data)
+// {
+// 	/*
+// 	 * There is no direct linear mapping from frequency band (2.4 or 5 GHz)
+// 	 * to UCI bands (a, b, g, n, a/c, ...). Heuristic?
+// 	 * https://en.wikipedia.org/wiki/IEEE_802.11
+// 	 */
+// 	return NULL;
+// }
+
+// char *transform_data_band_to_freqband_transform(const char *value, void *private_data)
+// {
+// 	/* These are direct mappings. */
+// 	if (strchr(value, 'a')) {
+// 		return xstrdup("5");
+// 	} else if (strchr(value, 'b') && strchr(value, 'g')) {
+// 		return xstrdup("2.4");
+// 	} else {
+// 		return NULL;
+// 	}
+// }
