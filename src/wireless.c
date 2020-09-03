@@ -21,6 +21,8 @@
 #define SYSREPOCFG_EMPTY_CHECK_COMMAND "sysrepocfg -X -d running -m " WIRELESS_YANG_MODEL
 
 #define WIRELESS_DEVICE_XPATH_TEMPLATE "/" WIRELESS_YANG_MODEL ":devices/device[name='%s']"
+#define WIRELESS_INTERFACE_XPATH_TEMPLATE "/" WIRELESS_YANG_MODEL ":devices/device[name='%s']/interface[name='%s']"
+
 #define WIRELESS_DEVICES_STATE_DATA_PATH "/" WIRELESS_YANG_MODEL ":devices-state"
 #define WIRELESS_DEVICES_STATE_DATA_XPATH_TEMPLATE WIRELESS_DEVICES_STATE_DATA_PATH "/device[name='%s']"
 
@@ -32,61 +34,75 @@ typedef struct {
 	transform_data_cb transform_data;
 } wireless_ubus_json_transform_table_t;
 
+const char *DEVICE_UCI_TEMPLATE = "wireless.%s.device";
+
 int wireless_plugin_init_cb(sr_session_ctx_t *session, void **private_data);
 void wireless_plugin_cleanup_cb(sr_session_ctx_t *session, void *private_data);
 
-static int wireless_module_change_cb(sr_session_ctx_t *session, const char *module_name,
-									 const char *xpath, sr_event_t event,
-									 uint32_t request_id, void *private_data);
-static int wireless_state_data_cb(sr_session_ctx_t *session, const char *module_name,
-								  const char *path, const char *request_xpath,
-								  uint32_t request_id, struct lyd_node **parent,
+static int wireless_module_change_cb(sr_session_ctx_t *session, const char *module_name, const char *xpath,
+									 sr_event_t event, uint32_t request_id, void *private_data);
+static int wireless_state_data_cb(sr_session_ctx_t *session, const char *module_name, const char *path,
+								  const char *request_xpath, uint32_t request_id, struct lyd_node **parent,
 								  void *private_data);
+
+static int transform_path_interface_cb(const char *target, const char *from, const char *to,
+									   srpo_uci_path_direction_t direction, char **path);
 
 static bool wireless_running_datastore_is_empty_check(void);
 static int wireless_uci_data_load(sr_session_ctx_t *session);
 static char *wireless_xpath_get(const struct lyd_node *node);
 
 static void wireless_ubus(const char *ubus_json, srpo_ubus_result_values_t *values);
-static int store_ubus_values_to_datastore(sr_session_ctx_t *session, const char *request_xpath, srpo_ubus_result_values_t *values, struct lyd_node **parent);
+static int store_ubus_values_to_datastore(sr_session_ctx_t *session, const char *request_xpath,
+										  srpo_ubus_result_values_t *values, struct lyd_node **parent);
 
 static void wireless_ubus_restart_network(int wait_time);
 
 srpo_uci_xpath_uci_template_map_t wireless_xpath_uci_path_template_map[] = {
-	{WIRELESS_DEVICE_XPATH_TEMPLATE, "wireless.%s", "wifi-device", NULL, NULL, false, false},
-	{WIRELESS_DEVICE_XPATH_TEMPLATE "/type", "wireless.%s.type", NULL, NULL, NULL, false, false},
-	{WIRELESS_DEVICE_XPATH_TEMPLATE "/country", "wireless.%s.country", NULL, NULL, NULL, false, false},
-	{WIRELESS_DEVICE_XPATH_TEMPLATE "/channel", "wireless.%s.channel", NULL, NULL, NULL, false, false},
-	{WIRELESS_DEVICE_XPATH_TEMPLATE "/txpower", "wireless.%s.txpower", NULL, NULL, NULL, false, false},
-	{WIRELESS_DEVICE_XPATH_TEMPLATE "/dtim_period", "wireless.%s.dtim_period", NULL, NULL, NULL, false, false},
-	{WIRELESS_DEVICE_XPATH_TEMPLATE "/beacon_int", "wireless.%s.beacon_int", NULL, NULL, NULL, false, false},
-	{WIRELESS_DEVICE_XPATH_TEMPLATE "/maxassoc", "wireless.%s.maxassoc", NULL, NULL, NULL, false, false},
-	{WIRELESS_DEVICE_XPATH_TEMPLATE "/hwmode", "wireless.%s.hwmode", NULL, NULL, NULL, false, false},
+	{WIRELESS_DEVICE_XPATH_TEMPLATE, "wireless.%s", "wifi-device", NULL, NULL, NULL, false, false},
+	{WIRELESS_DEVICE_XPATH_TEMPLATE "/type", "wireless.%s.type", NULL, NULL, NULL, NULL, false, false},
+	{WIRELESS_DEVICE_XPATH_TEMPLATE "/country", "wireless.%s.country", NULL, NULL, NULL, NULL, false, false},
+	{WIRELESS_DEVICE_XPATH_TEMPLATE "/channel", "wireless.%s.channel", NULL, NULL, NULL, NULL, false, false},
+	{WIRELESS_DEVICE_XPATH_TEMPLATE "/txpower", "wireless.%s.txpower", NULL, NULL, NULL, NULL, false, false},
+	{WIRELESS_DEVICE_XPATH_TEMPLATE "/dtim_period", "wireless.%s.dtim_period", NULL, NULL, NULL, NULL, false, false},
+	{WIRELESS_DEVICE_XPATH_TEMPLATE "/beacon_int", "wireless.%s.beacon_int", NULL, NULL, NULL, NULL, false, false},
+	{WIRELESS_DEVICE_XPATH_TEMPLATE "/maxassoc", "wireless.%s.maxassoc", NULL, NULL, NULL, NULL, false, false},
+	{WIRELESS_DEVICE_XPATH_TEMPLATE "/hwmode", "wireless.%s.hwmode", NULL, NULL, NULL, NULL, false, false},
 	{WIRELESS_DEVICE_XPATH_TEMPLATE "/enabled", "wireless.%s.disabled", NULL,
-	 transform_data_boolean_to_zero_one_negated_transform, transform_data_zero_one_to_boolean_negated_transform, true, true},
+	 NULL, transform_data_boolean_to_zero_one_negated_transform, transform_data_zero_one_to_boolean_negated_transform, true, true},
 	{WIRELESS_DEVICE_XPATH_TEMPLATE "/frameburst", "wireless.%s.frameburst", NULL,
-	 transform_data_boolean_to_zero_one_transform, transform_data_zero_one_to_boolean_transform, true, true},
-	{WIRELESS_DEVICE_XPATH_TEMPLATE "/doth", "wireless.%s.doth", NULL, NULL, NULL, false, false},
-};
+	 NULL, transform_data_boolean_to_zero_one_transform, transform_data_zero_one_to_boolean_transform, true, true},
+	{WIRELESS_DEVICE_XPATH_TEMPLATE "/doth", "wireless.%s.doth", NULL, NULL, NULL, NULL, false, false},
 
-srpo_uci_xpath_uci_template_map_t wireless_xpath_uci_path_unnamed_template_map[] = {
-	{"/interface[name='%s']/ifname", "wireless.%s.ifname", "wifi-iface", NULL, NULL, false, false},
-	{"/interface[name='%s']/network", "wireless.%s.network", NULL, NULL, NULL, false, false},
-	{"/interface[name='%s']/mode", "wireless.%s.mode", NULL, NULL, NULL, false, false},
-	{"/interface[name='%s']/ssid", "wireless.%s.ssid", NULL, NULL, NULL, false, false},
-	{"/interface[name='%s']/encryption", "wireless.%s.encryption", NULL, NULL, NULL, false, false},
-	{"/interface[name='%s']/key", "wireless.%s.key", NULL, NULL, NULL, false, false},
-	{"/interface[name='%s']/key1", "wireless.%s.key1", NULL, NULL, NULL, false, false},
-	{"/interface[name='%s']/key2", "wireless.%s.key2", NULL, NULL, NULL, false, false},
-	{"/interface[name='%s']/key3", "wireless.%s.key3", NULL, NULL, NULL, false, false},
-	{"/interface[name='%s']/key4", "wireless.%s.key4", NULL, NULL, NULL, false, false},
-	{"/interface[name='%s']/isolate", "wireless.%s.isolate", NULL,
-	 transform_data_boolean_to_zero_one_transform, transform_data_zero_one_to_boolean_transform, true, true},
-	{"/interface[name='%s']/enabled", "wireless.%s.disabled", NULL,
-	 transform_data_boolean_to_zero_one_negated_transform, transform_data_zero_one_to_boolean_negated_transform, true, true},
-	{"/interface[name='%s']/macfilter", "wireless.%s.macfilter", NULL, NULL, NULL, false, false},
-	{"/interface[name='%s']/hidden", "wireless.%s.hidden", NULL,
-	 transform_data_boolean_to_zero_one_transform, transform_data_zero_one_to_boolean_transform, true, true},
+	{WIRELESS_INTERFACE_XPATH_TEMPLATE "/ifname", "wireless.%s.ifname", "wifi-iface",
+	 transform_path_interface_cb, NULL, NULL, false, false},
+	{WIRELESS_INTERFACE_XPATH_TEMPLATE "/network", "wireless.%s.network", NULL,
+	 transform_path_interface_cb, NULL, NULL, false, false},
+	{WIRELESS_INTERFACE_XPATH_TEMPLATE "/mode", "wireless.%s.mode", NULL,
+	 transform_path_interface_cb, NULL, NULL, false, false},
+	{WIRELESS_INTERFACE_XPATH_TEMPLATE "/ssid", "wireless.%s.ssid", NULL,
+	 transform_path_interface_cb, NULL, NULL, false, false},
+	{WIRELESS_INTERFACE_XPATH_TEMPLATE "/encryption", "wireless.%s.encryption", NULL,
+	 transform_path_interface_cb, NULL, NULL, false, false},
+	{WIRELESS_INTERFACE_XPATH_TEMPLATE "/key", "wireless.%s.key", NULL,
+	 transform_path_interface_cb, NULL, NULL, false, false},
+	{WIRELESS_INTERFACE_XPATH_TEMPLATE "/key1", "wireless.%s.key1", NULL,
+	 transform_path_interface_cb, NULL, NULL, false, false},
+	{WIRELESS_INTERFACE_XPATH_TEMPLATE "/key2", "wireless.%s.key2", NULL,
+	 transform_path_interface_cb, NULL, NULL, false, false},
+	{WIRELESS_INTERFACE_XPATH_TEMPLATE "/key3", "wireless.%s.key3", NULL,
+	 transform_path_interface_cb, NULL, NULL, false, false},
+	{WIRELESS_INTERFACE_XPATH_TEMPLATE "/key4", "wireless.%s.key4", NULL,
+	 transform_path_interface_cb, NULL, NULL, false, false},
+	{WIRELESS_INTERFACE_XPATH_TEMPLATE "/isolate", "wireless.%s.isolate", NULL,
+	 transform_path_interface_cb, transform_data_boolean_to_zero_one_transform, transform_data_zero_one_to_boolean_transform, true, true},
+	{WIRELESS_INTERFACE_XPATH_TEMPLATE "/enabled", "wireless.%s.disabled", NULL,
+	 transform_path_interface_cb, transform_data_boolean_to_zero_one_negated_transform, transform_data_zero_one_to_boolean_negated_transform, true, true},
+	{WIRELESS_INTERFACE_XPATH_TEMPLATE "/macfilter", "wireless.%s.macfilter", NULL,
+	 transform_path_interface_cb, transform_data_integer_to_state_transform, transform_data_state_to_integer_transform, true, true},
+	{WIRELESS_INTERFACE_XPATH_TEMPLATE "/hidden", "wireless.%s.hidden", NULL,
+	 transform_path_interface_cb, transform_data_boolean_to_zero_one_transform, transform_data_zero_one_to_boolean_transform, true, true},
+
 };
 
 static wireless_ubus_json_transform_table_t wireless_transform_table[] = {
@@ -96,17 +112,14 @@ static wireless_ubus_json_transform_table_t wireless_transform_table[] = {
 	{"radio", WIRELESS_DEVICES_STATE_DATA_XPATH_TEMPLATE "/up", transform_data_zero_one_to_boolean_ubus},
 };
 
-static const char *wireless_uci_sections[] = {"wifi-status", "wifi-device", "bandsteering", "apsteering"};
-static const char *wireless_uci_unnamed_sections[] = {"wifi-iface"};
+static const char *wireless_uci_sections[] = {"wifi-status", "wifi-device", "wifi-iface", "bandsteering", "apsteering"};
 
 static struct {
 	const char *uci_file;
 	const char **uci_section_list;
 	size_t uci_section_list_size;
-	bool convert_unnamed_sections;
 } wireless_config_files[] = {
-	{"wireless", wireless_uci_sections, ARRAY_SIZE(wireless_uci_sections), true},
-	{"wireless", wireless_uci_unnamed_sections, ARRAY_SIZE(wireless_uci_unnamed_sections), false},
+	{"wireless", wireless_uci_sections, ARRAY_SIZE(wireless_uci_sections)},
 };
 
 int wireless_plugin_init_cb(sr_session_ctx_t *session, void **private_data)
@@ -219,39 +232,22 @@ static int wireless_uci_data_load(sr_session_ctx_t *session)
 	char *uci_section_name = NULL;
 	char **uci_value_list = NULL;
 	size_t uci_value_list_size = 0;
-	srpo_uci_xpath_uci_template_map_t *template_map = NULL;
-	size_t template_map_size = 0;
 
 	for (size_t i = 0; i < ARRAY_SIZE(wireless_config_files); i++) {
-
-		if (wireless_config_files[i].convert_unnamed_sections) {
-			template_map = wireless_xpath_uci_path_template_map;
-			template_map_size = ARRAY_SIZE(wireless_xpath_uci_path_template_map);
-		} else {
-			template_map = wireless_xpath_uci_path_unnamed_template_map;
-			template_map_size = ARRAY_SIZE(wireless_xpath_uci_path_unnamed_template_map);
-		}
-
 		error = srpo_uci_ucipath_list_get(wireless_config_files[i].uci_file,
 										  wireless_config_files[i].uci_section_list,
 										  wireless_config_files[i].uci_section_list_size,
-										  &uci_path_list, &uci_path_list_size,
-										  wireless_config_files[i].convert_unnamed_sections);
+										  &uci_path_list, &uci_path_list_size, false);
 		if (error) {
 			SRP_LOG_ERR("srpo_uci_path_list_get error (%d): %s", error, srpo_uci_error_description_get(error));
 			goto error_out;
 		}
 
 		for (size_t j = 0; j < uci_path_list_size; j++) {
-			if (wireless_config_files[i].convert_unnamed_sections) {
-				error = srpo_uci_ucipath_to_xpath_convert(uci_path_list[j], template_map, template_map_size,
-														  &xpath);
-			} else {
-				error = srpo_uci_sublist_ucipath_to_xpath_convert(uci_path_list[j],
-																  WIRELESS_DEVICE_XPATH_TEMPLATE, "wireless.%s.device",
-																  template_map, template_map_size,
-																  &xpath);
-			}
+			error = srpo_uci_ucipath_to_xpath_convert(uci_path_list[j],
+													  wireless_xpath_uci_path_template_map,
+													  ARRAY_SIZE(wireless_xpath_uci_path_template_map),
+													  &xpath);
 
 			if (error && error != SRPO_UCI_ERR_NOT_FOUND) {
 				SRP_LOG_ERR("srpo_uci_to_xpath_path_convert error (%d): %s", error, srpo_uci_error_description_get(error));
@@ -261,14 +257,18 @@ static int wireless_uci_data_load(sr_session_ctx_t *session)
 				continue;
 			}
 
-			error = srpo_uci_transform_uci_data_cb_get(uci_path_list[j], template_map, template_map_size,
+			error = srpo_uci_transform_uci_data_cb_get(uci_path_list[j],
+													   wireless_xpath_uci_path_template_map,
+													   ARRAY_SIZE(wireless_xpath_uci_path_template_map),
 													   &transform_uci_data_cb);
 			if (error) {
 				SRP_LOG_ERR("srpo_uci_transfor_uci_data_cb_get error (%d): %s", error, srpo_uci_error_description_get(error));
 				goto error_out;
 			}
 
-			error = srpo_uci_has_transform_uci_data_private_get(uci_path_list[j], template_map, template_map_size,
+			error = srpo_uci_has_transform_uci_data_private_get(uci_path_list[j],
+																wireless_xpath_uci_path_template_map,
+																ARRAY_SIZE(wireless_xpath_uci_path_template_map),
 																&has_transform_uci_data_private);
 			if (error) {
 				SRP_LOG_ERR("srpo_uci_has_transform_uci_data_private_get error (%d): %s", error, srpo_uci_error_description_get(error));
@@ -412,16 +412,9 @@ static int wireless_module_change_cb(sr_session_ctx_t *session, const char *modu
 									   &prev_value, &prev_list, &prev_default) == SR_ERR_OK) {
 			node_xpath = wireless_xpath_get(node);
 
-			/* sublist case is handled specially */
-			if (strcmp(node->parent->schema->name, "interface") == 0) {
-				template_map = wireless_xpath_uci_path_unnamed_template_map;
-				template_map_size = ARRAY_SIZE(wireless_xpath_uci_path_unnamed_template_map);
-			} else {
-				template_map = wireless_xpath_uci_path_template_map;
-				template_map_size = ARRAY_SIZE(wireless_xpath_uci_path_template_map);
-			}
-
-			error = srpo_uci_xpath_to_ucipath_convert(node_xpath, template_map, template_map_size,
+			error = srpo_uci_xpath_to_ucipath_convert(node_xpath,
+													  wireless_xpath_uci_path_template_map,
+													  ARRAY_SIZE(wireless_xpath_uci_path_template_map),
 													  &uci_path);
 			if (error && error != SRPO_UCI_ERR_NOT_FOUND) {
 				SRP_LOG_ERR("srpo_uci_xpath_to_ucipath_convert error (%d): %s", error, srpo_uci_error_description_get(error));
@@ -433,14 +426,18 @@ static int wireless_module_change_cb(sr_session_ctx_t *session, const char *modu
 				continue;
 			}
 
-			error = srpo_uci_transform_sysrepo_data_cb_get(node_xpath, template_map, template_map_size,
+			error = srpo_uci_transform_sysrepo_data_cb_get(node_xpath,
+														   wireless_xpath_uci_path_template_map,
+														   ARRAY_SIZE(wireless_xpath_uci_path_template_map),
 														   &transform_sysrepo_data_cb);
 			if (error) {
 				SRP_LOG_ERR("srpo_uci_transfor_sysrepo_data_cb_get error (%d): %s", error, srpo_uci_error_description_get(error));
 				goto error_out;
 			}
 
-			error = srpo_uci_has_transform_sysrepo_data_private_get(node_xpath, template_map, template_map_size,
+			error = srpo_uci_has_transform_sysrepo_data_private_get(node_xpath,
+																	wireless_xpath_uci_path_template_map,
+																	ARRAY_SIZE(wireless_xpath_uci_path_template_map),
 																	&has_transform_sysrepo_data_private);
 			if (error) {
 				SRP_LOG_ERR("srpo_uci_has_transform_sysrepo_data_private_get error (%d): %s", error, srpo_uci_error_description_get(error));
@@ -550,7 +547,6 @@ static char *wireless_xpath_get(const struct lyd_node *node)
 {
 	char *xpath_node = NULL;
 	char *xpath_node_pos = NULL;
-	char *xpath_node_pos_second = NULL;
 	size_t xpath_trimed_size = 0;
 	char *xpath_trimed = NULL;
 
@@ -564,31 +560,6 @@ static char *wireless_xpath_get(const struct lyd_node *node)
 		xpath_trimed = xcalloc(1, xpath_trimed_size);
 		strncpy(xpath_trimed, xpath_node, xpath_trimed_size - 1);
 		xpath_trimed[xpath_trimed_size - 1] = '\0';
-
-		FREE_SAFE(xpath_node);
-
-		return xpath_trimed;
-	} else if (node->parent->schema->nodetype == LYS_LIST &&
-			   node->parent->parent->schema->nodetype == LYS_LIST) {
-		xpath_node = lyd_path(node);
-
-		xpath_node_pos = strrchr(xpath_node, '/');
-		if (xpath_node_pos == NULL)
-			return xpath_node;
-
-		/* Temporarily mangle memory to find the second-to-last
-		 * occurence of the delimiter in string.
-		 */
-		*xpath_node_pos = '\0';
-
-		xpath_node_pos_second = strrchr(xpath_node, '/');
-		if (xpath_node_pos_second == NULL)
-			return xpath_node;
-
-		/* Unmangle string in memory. */
-		*xpath_node_pos = '/';
-
-		xpath_trimed = xstrdup(xpath_node_pos_second);
 
 		FREE_SAFE(xpath_node);
 
@@ -699,6 +670,100 @@ out:
 	}
 
 	return error ? SR_ERR_CALLBACK_FAILED : SR_ERR_OK;
+}
+
+static int transform_path_interface_cb(const char *target, const char *from, const char *to,
+									   srpo_uci_path_direction_t direction, char **path)
+{
+	int error = SRPO_UCI_ERR_ARGUMENT;
+	char *path_key_value = NULL;
+	char **uci_value_list = NULL;
+	size_t uci_value_list_size = 0;
+	char *device_uci_key = NULL;
+	size_t device_uci_key_size = 0;
+	char *path_tmp = NULL;
+	size_t path_tmp_size = 0;
+
+	if (from == NULL || to == NULL)
+		goto cleanup;
+
+	if (direction == SRPO_UCI_PATH_DIRECTION_UCI) {
+		device_uci_key = srpo_uci_xpath_key_value_get(target, 1);
+		path_key_value = srpo_uci_xpath_key_value_get(target, 2);
+
+		path_tmp_size = (strlen(from) - 4 + 1) + strlen(device_uci_key) + strlen(path_key_value);
+		path_tmp = xmalloc(path_tmp_size);
+		snprintf(path_tmp, path_tmp_size, from, device_uci_key, path_key_value);
+
+		if (strcmp(target, path_tmp) != 0) {
+			error = SRPO_UCI_ERR_NOT_FOUND;
+			goto cleanup;
+		}
+
+		FREE_SAFE(path_tmp);
+		path_tmp = NULL;
+		path_tmp_size = 0;
+
+		path_tmp_size = (strlen(to) - 2 + 1) + strlen(path_key_value);
+		path_tmp = xmalloc(path_tmp_size);
+		snprintf(path_tmp, path_tmp_size, to, path_key_value);
+
+		*path = xstrdup(path_tmp);
+
+		error = SRPO_UCI_ERR_OK;
+		goto cleanup;
+	} else if (direction == SRPO_UCI_PATH_DIRECTION_XPATH) {
+		path_key_value = srpo_uci_section_name_get(target);
+
+		path_tmp_size = (strlen(from) - 2 + 1) + strlen(path_key_value);
+		path_tmp = xmalloc(path_tmp_size);
+		snprintf(path_tmp, path_tmp_size, from, path_key_value);
+
+		if (strcmp(target, path_tmp) != 0) {
+			error = SRPO_UCI_ERR_NOT_FOUND;
+			goto cleanup;
+		}
+
+		FREE_SAFE(path_tmp);
+		path_tmp = NULL;
+		path_tmp_size = 0;
+
+		device_uci_key_size = (strlen(DEVICE_UCI_TEMPLATE) - 2 + 1) + strlen(path_key_value);
+		device_uci_key = xmalloc(device_uci_key_size);
+		snprintf(device_uci_key, device_uci_key_size, DEVICE_UCI_TEMPLATE, path_key_value);
+
+		error = srpo_uci_element_value_get(device_uci_key, NULL, NULL, &uci_value_list, &uci_value_list_size);
+		if (error || uci_value_list_size != 1) {
+			error = SRPO_UCI_ERR_UCI;
+			goto cleanup;
+		}
+
+		path_tmp_size = (strlen(to) - 2 + 1) + strlen(uci_value_list[0]) + strlen(path_key_value);
+		path_tmp = xmalloc(path_tmp_size);
+		snprintf(path_tmp, path_tmp_size, to, uci_value_list[0], path_key_value);
+
+		*path = xstrdup(path_tmp);
+
+		error = SRPO_UCI_ERR_OK;
+		goto cleanup;
+	} else {
+		error = SRPO_UCI_ERR_ARGUMENT;
+		goto cleanup;
+	}
+
+	error = SRPO_UCI_ERR_NOT_FOUND;
+
+cleanup:
+	for (size_t i = 0; i < uci_value_list_size; i++) {
+		FREE_SAFE(uci_value_list[i]);
+	}
+	FREE_SAFE(uci_value_list);
+
+	FREE_SAFE(device_uci_key);
+	FREE_SAFE(path_key_value);
+	FREE_SAFE(path_tmp);
+
+	return error;
 }
 
 static void wireless_ubus(const char *ubus_json, srpo_ubus_result_values_t *values)

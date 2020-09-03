@@ -29,10 +29,9 @@ char *transform_data_zero_one_to_boolean_transform(const char *value, void *priv
 char *transform_data_boolean_to_zero_one_negated_transform(const char *value, void *private_data);
 char *transform_data_zero_one_to_boolean_negated_transform(const char *value, void *private_data);
 
-// char *transform_data_band_to_freqband_transform(const char *value, void *private_data);
-// char *transform_data_freqband_to_band_transform(const char *value, void *private_data);
-
-// char *transform_data_encryption_ubus(const char *value);
 char *transform_data_zero_one_to_boolean_ubus(const char *value);
+
+char *transform_data_state_to_integer_transform(const char *value, void *private_data);
+char *transform_data_integer_to_state_transform(const char *value, void *private_data);
 
 #endif /* TRANSFORM_DATA_H_ONCE */
