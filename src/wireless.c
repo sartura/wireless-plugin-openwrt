@@ -19,6 +19,7 @@
 
 #define WIRELESS_YANG_MODEL "router-wireless"
 #define SYSREPOCFG_EMPTY_CHECK_COMMAND "sysrepocfg -X -d running -m " WIRELESS_YANG_MODEL
+
 #define WIRELESS_DEVICE_XPATH_TEMPLATE "/" WIRELESS_YANG_MODEL ":devices/device[name='%s']"
 #define WIRELESS_DEVICES_STATE_DATA_PATH "/" WIRELESS_YANG_MODEL ":devices-state"
 #define WIRELESS_DEVICES_STATE_DATA_XPATH_TEMPLATE WIRELESS_DEVICES_STATE_DATA_PATH "/device[name='%s']"
@@ -35,12 +36,12 @@ int wireless_plugin_init_cb(sr_session_ctx_t *session, void **private_data);
 void wireless_plugin_cleanup_cb(sr_session_ctx_t *session, void *private_data);
 
 static int wireless_module_change_cb(sr_session_ctx_t *session, const char *module_name,
-				     const char *xpath, sr_event_t event,
-				     uint32_t request_id, void *private_data);
+									 const char *xpath, sr_event_t event,
+									 uint32_t request_id, void *private_data);
 static int wireless_state_data_cb(sr_session_ctx_t *session, const char *module_name,
-				  const char *path, const char *request_xpath,
-				  uint32_t request_id, struct lyd_node **parent,
-				  void *private_data);
+								  const char *path, const char *request_xpath,
+								  uint32_t request_id, struct lyd_node **parent,
+								  void *private_data);
 
 static bool wireless_running_datastore_is_empty_check(void);
 static int wireless_uci_data_load(sr_session_ctx_t *session);
@@ -52,108 +53,47 @@ static int store_ubus_values_to_datastore(sr_session_ctx_t *session, const char 
 static void wireless_ubus_restart_network(int wait_time);
 
 srpo_uci_xpath_uci_template_map_t wireless_xpath_uci_path_template_map[] = {
-	// device
-	{WIRELESS_DEVICE_XPATH_TEMPLATE,			"wireless.%s", "wifi-device", NULL, NULL, false, false},
-	{WIRELESS_DEVICE_XPATH_TEMPLATE "/type",		"wireless.%s.type", NULL, NULL, NULL, false, false},
-	{WIRELESS_DEVICE_XPATH_TEMPLATE "/country",		"wireless.%s.country", NULL, NULL, NULL, false, false},
-	// {WIRELESS_DEVICE_XPATH_TEMPLATE "/frequencyband",	"wireless.%s.band", NULL,
-	// 	transform_data_freqband_to_band_transform, transform_data_band_to_freqband_transform, true, true},
-	// {WIRELESS_DEVICE_XPATH_TEMPLATE "/bandwidth",		"wireless.%s.bandwidth", NULL, NULL, NULL, false, false},
-	{WIRELESS_DEVICE_XPATH_TEMPLATE "/channel",		"wireless.%s.channel", NULL, NULL, NULL, false, false},
-	// {WIRELESS_DEVICE_XPATH_TEMPLATE "/obss_coex",		"wireless.%s.obss_coex", NULL,
-	// 	transform_data_boolean_to_zero_one_transform, transform_data_zero_one_to_boolean_transform, true, true},
-	// {WIRELESS_DEVICE_XPATH_TEMPLATE "/scantimer",		"wireless.%s.scantimer", NULL, NULL, NULL, false, false},
-	// {WIRELESS_DEVICE_XPATH_TEMPLATE "/wmm",			"wireless.%s.wmm", NULL,
-	// 	transform_data_boolean_to_zero_one_transform, transform_data_zero_one_to_boolean_transform, true, true},
-	// {WIRELESS_DEVICE_XPATH_TEMPLATE "/wmm_noack",		"wireless.%s.wmm_noack", NULL,
-	// 	transform_data_boolean_to_zero_one_transform, transform_data_zero_one_to_boolean_transform, true, true},
-	// {WIRELESS_DEVICE_XPATH_TEMPLATE "/wmm_apsd",		"wireless.%s.wmm_apsd", NULL,
-	// 	transform_data_boolean_to_zero_one_transform, transform_data_zero_one_to_boolean_transform, true, true},
-	{WIRELESS_DEVICE_XPATH_TEMPLATE "/txpower",		"wireless.%s.txpower", NULL, NULL, NULL, false, false},
-	// {WIRELESS_DEVICE_XPATH_TEMPLATE "/rateset",		"wireless.%s.rateset", NULL, NULL, NULL, false, false},
-	// {WIRELESS_DEVICE_XPATH_TEMPLATE "/frag",		"wireless.%s.frag", NULL, NULL, NULL, false, false},
-	// {WIRELESS_DEVICE_XPATH_TEMPLATE "/rts",			"wireless.%s.rts", NULL, NULL, NULL, false, false},
-	{WIRELESS_DEVICE_XPATH_TEMPLATE "/dtim_period",		"wireless.%s.dtim_period", NULL, NULL, NULL, false, false},
-	{WIRELESS_DEVICE_XPATH_TEMPLATE "/beacon_int",		"wireless.%s.beacon_int", NULL, NULL, NULL, false, false},
-	// {WIRELESS_DEVICE_XPATH_TEMPLATE "/rxchainps",		"wireless.%s.rxchainps", NULL,
-	// 	transform_data_boolean_to_zero_one_transform, transform_data_zero_one_to_boolean_transform, true, true},
-	// {WIRELESS_DEVICE_XPATH_TEMPLATE "/rxchainps_qt",	"wireless.%s.rxchainps_qt", NULL, NULL, NULL, false, false},
-	// {WIRELESS_DEVICE_XPATH_TEMPLATE "/rxchainps_pps",	"wireless.%s.rxchainps_pps", NULL, NULL, NULL, false, false},
-	// {WIRELESS_DEVICE_XPATH_TEMPLATE "/rifs",		"wireless.%s.rifs", NULL,
-	// 	transform_data_boolean_to_zero_one_transform, transform_data_zero_one_to_boolean_transform, true, true},
-	// {WIRELESS_DEVICE_XPATH_TEMPLATE "/rifs_advert",		"wireless.%s.rifs_advert", NULL,
-	// 	transform_data_boolean_to_zero_one_transform, transform_data_zero_one_to_boolean_transform, true, true},
-	{WIRELESS_DEVICE_XPATH_TEMPLATE "/maxassoc",		"wireless.%s.maxassoc", NULL, NULL, NULL, false, false},
-	// {WIRELESS_DEVICE_XPATH_TEMPLATE "/dfsc",		"wireless.%s.dfsc", NULL,
-	// 	transform_data_boolean_to_zero_one_transform, transform_data_zero_one_to_boolean_transform, true, true},
-	{WIRELESS_DEVICE_XPATH_TEMPLATE "/hwmode",		"wireless.%s.hwmode", NULL, NULL, NULL, false, false},
-	{WIRELESS_DEVICE_XPATH_TEMPLATE "/enabled",		"wireless.%s.disabled", NULL,
-		transform_data_boolean_to_zero_one_negated_transform, transform_data_zero_one_to_boolean_negated_transform, true, true},
-	{WIRELESS_DEVICE_XPATH_TEMPLATE "/frameburst",		"wireless.%s.frameburst", NULL,
-		transform_data_boolean_to_zero_one_transform, transform_data_zero_one_to_boolean_transform, true, true},
-	// {WIRELESS_DEVICE_XPATH_TEMPLATE "/beamforming",		"wireless.%s.beamforming", NULL,
-	// 	transform_data_boolean_to_zero_one_transform, transform_data_zero_one_to_boolean_transform, true, true},
-	// {WIRELESS_DEVICE_XPATH_TEMPLATE "/atf",			"wireless.%s.atf", NULL,
-	// 	transform_data_boolean_to_zero_one_transform, transform_data_zero_one_to_boolean_transform, true, true},
-	{WIRELESS_DEVICE_XPATH_TEMPLATE "/doth",		"wireless.%s.doth", NULL, NULL, NULL, false, false},
-
-        /*
-	// *steering
-	{"/" WIRELESS_YANG_MODEL ":apsteering/enabled",		 "wireless.apsteering.enabled", NULL,
-		transform_data_boolean_to_zero_one_transform, transform_data_zero_one_to_boolean_transform, true, true},
-	{"/" WIRELESS_YANG_MODEL ":apsteering/monitor_interval", "wireless.apsteering.monitor_interval", NULL, NULL, NULL, false, false},
-	{"/" WIRELESS_YANG_MODEL ":apsteering/rssi_threshold",	 "wireless.apsteering.rssi_threshold", NULL, NULL, NULL, false, false},
-	{"/" WIRELESS_YANG_MODEL ":apsteering/reassoc_timer",	 "wireless.apsteering.reassoc_timer", NULL, NULL, NULL, false, false},
-	{"/" WIRELESS_YANG_MODEL ":apsteering/retry_interval",	 "wireless.apsteering.retry_interval", NULL, NULL, NULL, false, false},
-
-	{"/" WIRELESS_YANG_MODEL ":bandsteering/enabled",	 "wireless.bandsteering.enabled", NULL,
-		transform_data_boolean_to_zero_one_transform, transform_data_zero_one_to_boolean_transform, true, true},
-	{"/" WIRELESS_YANG_MODEL ":bandsteering/policy",	 "wireless.bandsteering.policy", NULL,
-		transform_data_boolean_to_zero_one_transform, transform_data_zero_one_to_boolean_transform, true, true},
-	{"/" WIRELESS_YANG_MODEL ":bandsteering/rssi_threshold", "wireless.bandsteering.rssi_threshold", NULL, NULL, NULL, false, false},
-	{"/" WIRELESS_YANG_MODEL ":bandsteering/bw_util",	 "wireless.bandsteering.bw_util", NULL, NULL, NULL, false, false},
-        */
+	{WIRELESS_DEVICE_XPATH_TEMPLATE, "wireless.%s", "wifi-device", NULL, NULL, false, false},
+	{WIRELESS_DEVICE_XPATH_TEMPLATE "/type", "wireless.%s.type", NULL, NULL, NULL, false, false},
+	{WIRELESS_DEVICE_XPATH_TEMPLATE "/country", "wireless.%s.country", NULL, NULL, NULL, false, false},
+	{WIRELESS_DEVICE_XPATH_TEMPLATE "/channel", "wireless.%s.channel", NULL, NULL, NULL, false, false},
+	{WIRELESS_DEVICE_XPATH_TEMPLATE "/txpower", "wireless.%s.txpower", NULL, NULL, NULL, false, false},
+	{WIRELESS_DEVICE_XPATH_TEMPLATE "/dtim_period", "wireless.%s.dtim_period", NULL, NULL, NULL, false, false},
+	{WIRELESS_DEVICE_XPATH_TEMPLATE "/beacon_int", "wireless.%s.beacon_int", NULL, NULL, NULL, false, false},
+	{WIRELESS_DEVICE_XPATH_TEMPLATE "/maxassoc", "wireless.%s.maxassoc", NULL, NULL, NULL, false, false},
+	{WIRELESS_DEVICE_XPATH_TEMPLATE "/hwmode", "wireless.%s.hwmode", NULL, NULL, NULL, false, false},
+	{WIRELESS_DEVICE_XPATH_TEMPLATE "/enabled", "wireless.%s.disabled", NULL,
+	 transform_data_boolean_to_zero_one_negated_transform, transform_data_zero_one_to_boolean_negated_transform, true, true},
+	{WIRELESS_DEVICE_XPATH_TEMPLATE "/frameburst", "wireless.%s.frameburst", NULL,
+	 transform_data_boolean_to_zero_one_transform, transform_data_zero_one_to_boolean_transform, true, true},
+	{WIRELESS_DEVICE_XPATH_TEMPLATE "/doth", "wireless.%s.doth", NULL, NULL, NULL, false, false},
 };
 
 srpo_uci_xpath_uci_template_map_t wireless_xpath_uci_path_unnamed_template_map[] = {
-	{"/interface[name='%s']/ifname", 	 "wireless.%s.ifname", "wifi-iface", NULL, NULL, false, false},
-	{"/interface[name='%s']/network",	 "wireless.%s.network", NULL, NULL, NULL, false, false},
-	{"/interface[name='%s']/mode", 		 "wireless.%s.mode", NULL, NULL, NULL, false, false},
-	{"/interface[name='%s']/ssid", 		 "wireless.%s.ssid", NULL, NULL, NULL, false, false},
-	{"/interface[name='%s']/encryption",	 "wireless.%s.encryption", NULL, NULL, NULL, false, false},
-	// {"/interface[name='%s']/cipher", 	 "wireless.%s.cipher", NULL, NULL, NULL, false, false},
-	{"/interface[name='%s']/key", 		 "wireless.%s.key", NULL, NULL, NULL, false, false},
-	// {"/interface[name='%s']/key_index", 	 "wireless.%s.key_index", NULL, NULL, NULL, false, false},
-	{"/interface[name='%s']/key1", 		 "wireless.%s.key1", NULL, NULL, NULL, false, false},
-	{"/interface[name='%s']/key2", 		 "wireless.%s.key2", NULL, NULL, NULL, false, false},
-	{"/interface[name='%s']/key3", 		 "wireless.%s.key3", NULL, NULL, NULL, false, false},
-	{"/interface[name='%s']/key4", 		 "wireless.%s.key4", NULL, NULL, NULL, false, false},
-	// {"/interface[name='%s']/radius_server",  "wireless.%s.radius_server", NULL, NULL, NULL, false, false},
-	// {"/interface[name='%s']/radius_port", 	 "wireless.%s.radius_port", NULL, NULL, NULL, false, false},
-	// {"/interface[name='%s']/radius_secret",  "wireless.%s.radius_secret", NULL, NULL, NULL, false, false},
-	// {"/interface[name='%s']/gtk_rekey", 	 "wireless.%s.gtk_rekey", NULL, NULL, NULL, false, false},
-	// {"/interface[name='%s']/net_reauth", 	 "wireless.%s.net_reauth", NULL, NULL, NULL, false, false},
-	// {"/interface[name='%s']/wps_pbc", 	 "wireless.%s.wps_pbc", NULL,
-	// 	transform_data_boolean_to_zero_one_transform, transform_data_zero_one_to_boolean_transform, true, true},
-	// {"/interface[name='%s']/wmf_bss_enable", "wireless.%s.wmf_bss_enable", NULL,
-	// 	transform_data_boolean_to_zero_one_transform, transform_data_zero_one_to_boolean_transform, true, true},
-	// {"/interface[name='%s']/bss_max", 	 "wireless.%s.bss_max", NULL, NULL, NULL, false, false},
-	// {"/interface[name='%s']/closed", 	 "wireless.%s.closed", NULL,
-	// 	transform_data_boolean_to_zero_one_transform, transform_data_zero_one_to_boolean_transform, true, true},
-	{"/interface[name='%s']/isolate", 	 "wireless.%s.isolate", NULL,
-		transform_data_boolean_to_zero_one_transform, transform_data_zero_one_to_boolean_transform, true, true},
-	{"/interface[name='%s']/enabled", 	 "wireless.%s.disabled", NULL,
-		transform_data_boolean_to_zero_one_negated_transform, transform_data_zero_one_to_boolean_negated_transform, true, true},
-	{"/interface[name='%s']/macfilter", 	 "wireless.%s.macfilter", NULL, NULL, NULL, false, false},
-	{"/interface[name='%s']/hidden", 	 "wireless.%s.hidden", NULL,
-		transform_data_boolean_to_zero_one_transform, transform_data_zero_one_to_boolean_transform, true, true},
+	{"/interface[name='%s']/ifname", "wireless.%s.ifname", "wifi-iface", NULL, NULL, false, false},
+	{"/interface[name='%s']/network", "wireless.%s.network", NULL, NULL, NULL, false, false},
+	{"/interface[name='%s']/mode", "wireless.%s.mode", NULL, NULL, NULL, false, false},
+	{"/interface[name='%s']/ssid", "wireless.%s.ssid", NULL, NULL, NULL, false, false},
+	{"/interface[name='%s']/encryption", "wireless.%s.encryption", NULL, NULL, NULL, false, false},
+	{"/interface[name='%s']/key", "wireless.%s.key", NULL, NULL, NULL, false, false},
+	{"/interface[name='%s']/key1", "wireless.%s.key1", NULL, NULL, NULL, false, false},
+	{"/interface[name='%s']/key2", "wireless.%s.key2", NULL, NULL, NULL, false, false},
+	{"/interface[name='%s']/key3", "wireless.%s.key3", NULL, NULL, NULL, false, false},
+	{"/interface[name='%s']/key4", "wireless.%s.key4", NULL, NULL, NULL, false, false},
+	{"/interface[name='%s']/isolate", "wireless.%s.isolate", NULL,
+	 transform_data_boolean_to_zero_one_transform, transform_data_zero_one_to_boolean_transform, true, true},
+	{"/interface[name='%s']/enabled", "wireless.%s.disabled", NULL,
+	 transform_data_boolean_to_zero_one_negated_transform, transform_data_zero_one_to_boolean_negated_transform, true, true},
+	{"/interface[name='%s']/macfilter", "wireless.%s.macfilter", NULL, NULL, NULL, false, false},
+	{"/interface[name='%s']/hidden", "wireless.%s.hidden", NULL,
+	 transform_data_boolean_to_zero_one_transform, transform_data_zero_one_to_boolean_transform, true, true},
 };
 
 static wireless_ubus_json_transform_table_t wireless_transform_table[] = {
-	{"channel",	WIRELESS_DEVICES_STATE_DATA_XPATH_TEMPLATE "/channel",		NULL},
-	{"ssid", 	WIRELESS_DEVICES_STATE_DATA_XPATH_TEMPLATE "/ssid",		NULL},
-	{"encryption",	WIRELESS_DEVICES_STATE_DATA_XPATH_TEMPLATE "/encryption",	NULL/*transform_data_encryption_ubus*/},
-	{"radio",	WIRELESS_DEVICES_STATE_DATA_XPATH_TEMPLATE "/up",		transform_data_zero_one_to_boolean_ubus},
+	{"channel", WIRELESS_DEVICES_STATE_DATA_XPATH_TEMPLATE "/channel", NULL},
+	{"ssid", WIRELESS_DEVICES_STATE_DATA_XPATH_TEMPLATE "/ssid", NULL},
+	{"encryption", WIRELESS_DEVICES_STATE_DATA_XPATH_TEMPLATE "/encryption", NULL /*transform_data_encryption_ubus*/},
+	{"radio", WIRELESS_DEVICES_STATE_DATA_XPATH_TEMPLATE "/up", transform_data_zero_one_to_boolean_ubus},
 };
 
 static const char *wireless_uci_sections[] = {"wifi-status", "wifi-device", "bandsteering", "apsteering"};
@@ -214,9 +154,9 @@ int wireless_plugin_init_cb(sr_session_ctx_t *session, void **private_data)
 	SRP_LOG_INFMSG("subscribing to module change");
 
 	error = sr_module_change_subscribe(session, WIRELESS_YANG_MODEL,
-					   "/" WIRELESS_YANG_MODEL ":*//*",
-					   wireless_module_change_cb, *private_data, 0,
-					   SR_SUBSCR_DEFAULT, &subscription);
+									   "/" WIRELESS_YANG_MODEL ":*//*",
+									   wireless_module_change_cb, *private_data, 0,
+									   SR_SUBSCR_DEFAULT, &subscription);
 	if (error) {
 		SRP_LOG_ERR("sr_module_change_subscribe error (%d): %s", error, sr_strerror(error));
 		goto error_out;
@@ -225,8 +165,8 @@ int wireless_plugin_init_cb(sr_session_ctx_t *session, void **private_data)
 	SRP_LOG_INFMSG("subscribing to get oper items");
 
 	error = sr_oper_get_items_subscribe(session, WIRELESS_YANG_MODEL, WIRELESS_DEVICES_STATE_DATA_PATH,
-					    wireless_state_data_cb, *private_data,
-					    SR_SUBSCR_CTX_REUSE, &subscription);
+										wireless_state_data_cb, *private_data,
+										SR_SUBSCR_CTX_REUSE, &subscription);
 	if (error) {
 		SRP_LOG_ERR("sr_oper_get_items_subscribe error (%d): %s", error, sr_strerror(error));
 		goto error_out;
@@ -293,10 +233,10 @@ static int wireless_uci_data_load(sr_session_ctx_t *session)
 		}
 
 		error = srpo_uci_ucipath_list_get(wireless_config_files[i].uci_file,
-						  wireless_config_files[i].uci_section_list,
-						  wireless_config_files[i].uci_section_list_size,
-						  &uci_path_list, &uci_path_list_size,
-						  wireless_config_files[i].convert_unnamed_sections);
+										  wireless_config_files[i].uci_section_list,
+										  wireless_config_files[i].uci_section_list_size,
+										  &uci_path_list, &uci_path_list_size,
+										  wireless_config_files[i].convert_unnamed_sections);
 		if (error) {
 			SRP_LOG_ERR("srpo_uci_path_list_get error (%d): %s", error, srpo_uci_error_description_get(error));
 			goto error_out;
@@ -305,12 +245,12 @@ static int wireless_uci_data_load(sr_session_ctx_t *session)
 		for (size_t j = 0; j < uci_path_list_size; j++) {
 			if (wireless_config_files[i].convert_unnamed_sections) {
 				error = srpo_uci_ucipath_to_xpath_convert(uci_path_list[j], template_map, template_map_size,
-									  &xpath);
+														  &xpath);
 			} else {
 				error = srpo_uci_sublist_ucipath_to_xpath_convert(uci_path_list[j],
-										  WIRELESS_DEVICE_XPATH_TEMPLATE, "wireless.%s.device",
-										  template_map, template_map_size,
-										  &xpath);
+																  WIRELESS_DEVICE_XPATH_TEMPLATE, "wireless.%s.device",
+																  template_map, template_map_size,
+																  &xpath);
 			}
 
 			if (error && error != SRPO_UCI_ERR_NOT_FOUND) {
@@ -322,14 +262,14 @@ static int wireless_uci_data_load(sr_session_ctx_t *session)
 			}
 
 			error = srpo_uci_transform_uci_data_cb_get(uci_path_list[j], template_map, template_map_size,
-								   &transform_uci_data_cb);
+													   &transform_uci_data_cb);
 			if (error) {
 				SRP_LOG_ERR("srpo_uci_transfor_uci_data_cb_get error (%d): %s", error, srpo_uci_error_description_get(error));
 				goto error_out;
 			}
 
 			error = srpo_uci_has_transform_uci_data_private_get(uci_path_list[j], template_map, template_map_size,
-									    &has_transform_uci_data_private);
+																&has_transform_uci_data_private);
 			if (error) {
 				SRP_LOG_ERR("srpo_uci_has_transform_uci_data_private_get error (%d): %s", error, srpo_uci_error_description_get(error));
 				goto error_out;
@@ -338,9 +278,9 @@ static int wireless_uci_data_load(sr_session_ctx_t *session)
 			uci_section_name = srpo_uci_section_name_get(uci_path_list[j]);
 
 			error = srpo_uci_element_value_get(uci_path_list[j],
-							   transform_uci_data_cb,
-							   has_transform_uci_data_private ? uci_section_name : NULL,
-							   &uci_value_list, &uci_value_list_size);
+											   transform_uci_data_cb,
+											   has_transform_uci_data_private ? uci_section_name : NULL,
+											   &uci_value_list, &uci_value_list_size);
 			if (error) {
 				SRP_LOG_ERR("srpo_uci_element_value_get error (%d): %s", error, srpo_uci_error_description_get(error));
 				goto error_out;
@@ -419,8 +359,8 @@ void wireless_plugin_cleanup_cb(sr_session_ctx_t *session, void *private_data)
 }
 
 static int wireless_module_change_cb(sr_session_ctx_t *session, const char *module_name,
-				     const char *xpath, sr_event_t event,
-				     uint32_t request_id, void *private_data)
+									 const char *xpath, sr_event_t event,
+									 uint32_t request_id, void *private_data)
 {
 	int error = 0;
 	sr_session_ctx_t *startup_session = (sr_session_ctx_t *) private_data;
@@ -469,7 +409,7 @@ static int wireless_module_change_cb(sr_session_ctx_t *session, const char *modu
 		}
 
 		while (sr_get_change_tree_next(session, wireless_module_change_iter, &operation, &node,
-					       &prev_value, &prev_list, &prev_default) == SR_ERR_OK) {
+									   &prev_value, &prev_list, &prev_default) == SR_ERR_OK) {
 			node_xpath = wireless_xpath_get(node);
 
 			/* sublist case is handled specially */
@@ -482,7 +422,7 @@ static int wireless_module_change_cb(sr_session_ctx_t *session, const char *modu
 			}
 
 			error = srpo_uci_xpath_to_ucipath_convert(node_xpath, template_map, template_map_size,
-								  &uci_path);
+													  &uci_path);
 			if (error && error != SRPO_UCI_ERR_NOT_FOUND) {
 				SRP_LOG_ERR("srpo_uci_xpath_to_ucipath_convert error (%d): %s", error, srpo_uci_error_description_get(error));
 				goto error_out;
@@ -494,21 +434,21 @@ static int wireless_module_change_cb(sr_session_ctx_t *session, const char *modu
 			}
 
 			error = srpo_uci_transform_sysrepo_data_cb_get(node_xpath, template_map, template_map_size,
-								       &transform_sysrepo_data_cb);
+														   &transform_sysrepo_data_cb);
 			if (error) {
 				SRP_LOG_ERR("srpo_uci_transfor_sysrepo_data_cb_get error (%d): %s", error, srpo_uci_error_description_get(error));
 				goto error_out;
 			}
 
 			error = srpo_uci_has_transform_sysrepo_data_private_get(node_xpath, template_map, template_map_size,
-										&has_transform_sysrepo_data_private);
+																	&has_transform_sysrepo_data_private);
 			if (error) {
 				SRP_LOG_ERR("srpo_uci_has_transform_sysrepo_data_private_get error (%d): %s", error, srpo_uci_error_description_get(error));
 				goto error_out;
 			}
 
 			error = srpo_uci_section_type_get(uci_path, template_map, template_map_size,
-							  &uci_section_type);
+											  &uci_section_type);
 			if (error) {
 				SRP_LOG_ERR("srpo_uci_section_type_get error (%d): %s", error, srpo_uci_error_description_get(error));
 				goto error_out;
@@ -620,7 +560,7 @@ static char *wireless_xpath_get(const struct lyd_node *node)
 		if (xpath_node_pos == NULL)
 			return xpath_node;
 
-		xpath_trimed_size = (size_t)xpath_node_pos - (size_t)xpath_node + 1;
+		xpath_trimed_size = (size_t) xpath_node_pos - (size_t) xpath_node + 1;
 		xpath_trimed = xcalloc(1, xpath_trimed_size);
 		strncpy(xpath_trimed, xpath_node, xpath_trimed_size - 1);
 		xpath_trimed[xpath_trimed_size - 1] = '\0';
@@ -629,7 +569,7 @@ static char *wireless_xpath_get(const struct lyd_node *node)
 
 		return xpath_trimed;
 	} else if (node->parent->schema->nodetype == LYS_LIST &&
-		   node->parent->parent->schema->nodetype == LYS_LIST) {
+			   node->parent->parent->schema->nodetype == LYS_LIST) {
 		xpath_node = lyd_path(node);
 
 		xpath_node_pos = strrchr(xpath_node, '/');
@@ -662,9 +602,7 @@ static void wireless_ubus_restart_network(int wait_time)
 {
 	srpo_ubus_result_values_t *values = NULL;
 	srpo_ubus_call_data_t ubus_call_data = {
-		.lookup_path = "uci", .method = "commit", .transform_data_cb = NULL,
-		.timeout = (wait_time * 1000), .json_call_arguments = NULL
-	};
+		.lookup_path = "uci", .method = "commit", .transform_data_cb = NULL, .timeout = (wait_time * 1000), .json_call_arguments = NULL};
 	struct json_object *json_obj;
 	int error = SRPO_UBUS_ERR_OK;
 
@@ -690,9 +628,9 @@ cleanup:
 }
 
 static int wireless_state_data_cb(sr_session_ctx_t *session, const char *module_name,
-				  const char *path, const char *request_xpath,
-				  uint32_t request_id, struct lyd_node **parent,
-				  void *private_data)
+								  const char *path, const char *request_xpath,
+								  uint32_t request_id, struct lyd_node **parent,
+								  void *private_data)
 {
 	int error = SRPO_UBUS_ERR_OK;
 	struct lyd_node *root = NULL;
@@ -703,10 +641,7 @@ static int wireless_state_data_cb(sr_session_ctx_t *session, const char *module_
 	struct json_object *json_obj;
 	srpo_ubus_result_values_t *values = NULL;
 	srpo_ubus_call_data_t ubus_call_data = {
-		.lookup_path = "network.wireless", .method = "status",
-		.transform_data_cb = wireless_ubus, .timeout = 0,
-		.json_call_arguments = NULL
-	};
+		.lookup_path = "network.wireless", .method = "status", .transform_data_cb = wireless_ubus, .timeout = 0, .json_call_arguments = NULL};
 
 	if (strcmp(path, WIRELESS_DEVICES_STATE_DATA_PATH) != 0 && strcmp(path, "*") != 0)
 		return SR_ERR_OK;
@@ -716,8 +651,10 @@ static int wireless_state_data_cb(sr_session_ctx_t *session, const char *module_
 		goto out;
 	}
 
-	LY_TREE_FOR(root->child, child) {
-		LY_TREE_DFS_BEGIN(child->child, next, node) {
+	LY_TREE_FOR(root->child, child)
+	{
+		LY_TREE_DFS_BEGIN(child->child, next, node)
+		{
 			if (node->schema->nodetype != LYS_LEAF && strcmp(node->schema->name, "name") != 0)
 				continue;
 
@@ -747,7 +684,8 @@ static int wireless_state_data_cb(sr_session_ctx_t *session, const char *module_
 			srpo_ubus_free_result_values(values);
 			values = NULL;
 
-		LY_TREE_DFS_END(child->child, next, node)};
+			LY_TREE_DFS_END(child->child, next, node)
+		};
 	}
 
 out:
@@ -793,9 +731,9 @@ static void wireless_ubus(const char *ubus_json, srpo_ubus_result_values_t *valu
 		}
 
 		error = srpo_ubus_result_values_add(values, string, strlen(string),
-						    wireless_transform_table[i].xpath_template,
-						    strlen(wireless_transform_table[i].xpath_template),
-						    device_string, strlen(device_string));
+											wireless_transform_table[i].xpath_template,
+											strlen(wireless_transform_table[i].xpath_template),
+											device_string, strlen(device_string));
 		if (error != SRPO_UBUS_ERR_OK) {
 			goto cleanup;
 		}
@@ -826,7 +764,6 @@ static int store_ubus_values_to_datastore(sr_session_ctx_t *session, const char 
 	return 0;
 }
 
-
 #ifndef PLUGIN
 #include <signal.h>
 
@@ -836,7 +773,7 @@ static void sigint_handler(__attribute__((unused)) int signum);
 
 int main()
 {
-  int error = SR_ERR_OK;
+	int error = SR_ERR_OK;
 	sr_conn_ctx_t *connection = NULL;
 	sr_session_ctx_t *session = NULL;
 	void *private_data = NULL;
