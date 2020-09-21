@@ -36,9 +36,6 @@ typedef struct {
 
 const char *DEVICE_UCI_TEMPLATE = "wireless.%s.device";
 
-int wireless_plugin_init_cb(sr_session_ctx_t *session, void **private_data);
-void wireless_plugin_cleanup_cb(sr_session_ctx_t *session, void *private_data);
-
 static int wireless_module_change_cb(sr_session_ctx_t *session, const char *module_name, const char *xpath,
 									 sr_event_t event, uint32_t request_id, void *private_data);
 static int wireless_state_data_cb(sr_session_ctx_t *session, const char *module_name, const char *path,
@@ -122,7 +119,7 @@ static struct {
 	{"wireless", wireless_uci_sections, ARRAY_SIZE(wireless_uci_sections)},
 };
 
-int wireless_plugin_init_cb(sr_session_ctx_t *session, void **private_data)
+int sr_plugin_init_cb(sr_session_ctx_t *session, void **private_data)
 {
 	int error = 0;
 	sr_conn_ctx_t *connection = NULL;
@@ -345,7 +342,7 @@ out:
 	return error ? -1 : 0;
 }
 
-void wireless_plugin_cleanup_cb(sr_session_ctx_t *session, void *private_data)
+void sr_plugin_cleanup_cb(sr_session_ctx_t *session, void *private_data)
 {
 	srpo_uci_cleanup();
 
@@ -831,6 +828,7 @@ static int store_ubus_values_to_datastore(sr_session_ctx_t *session, const char 
 
 #ifndef PLUGIN
 #include <signal.h>
+#include <unistd.h>
 
 volatile int exit_application = 0;
 
@@ -858,9 +856,9 @@ int main()
 		goto out;
 	}
 
-	error = wireless_plugin_init_cb(session, &private_data);
+	error = sr_plugin_init_cb(session, &private_data);
 	if (error) {
-		SRP_LOG_ERRMSG("wireless_plugin_init_cb error");
+		SRP_LOG_ERRMSG("sr_plugin_init_cb error");
 		goto out;
 	}
 
@@ -872,7 +870,7 @@ int main()
 	}
 
 out:
-	wireless_plugin_cleanup_cb(session, private_data);
+	sr_plugin_cleanup_cb(session, private_data);
 	sr_disconnect(connection);
 
 	return error ? -1 : 0;
