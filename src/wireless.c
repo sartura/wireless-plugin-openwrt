@@ -619,6 +619,9 @@ static int wireless_state_data_cb(sr_session_ctx_t *session, const char *module_
 		goto out;
 	}
 
+	if (!root)
+		goto out;
+
 	LY_TREE_FOR(root->child, child)
 	{
 		LY_TREE_DFS_BEGIN(child->child, next, node)
