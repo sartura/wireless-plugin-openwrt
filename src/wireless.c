@@ -223,12 +223,24 @@ static int wireless_uci_data_load(sr_session_ctx_t *session)
 	int error = 0;
 	char **uci_path_list = NULL;
 	size_t uci_path_list_size = 0;
-	char *xpath = NULL;
-	srpo_uci_transform_data_cb transform_uci_data_cb = NULL;
-	bool has_transform_uci_data_private = false;
 	char *uci_section_name = NULL;
 	char **uci_value_list = NULL;
 	size_t uci_value_list_size = 0;
+
+	struct {
+		char **data;
+		size_t size;
+	} xpath_list = {0};
+
+	struct {
+		srpo_uci_transform_data_cb *data;
+		size_t size;
+	} uci_cb_list = {0};
+
+	struct {
+		bool *data;
+		size_t size;
+	} uci_has_pd = {0};
 
 	for (size_t i = 0; i < ARRAY_SIZE(wireless_config_files); i++) {
 		error = srpo_uci_ucipath_list_get(wireless_config_files[i].uci_file,
@@ -244,7 +256,7 @@ static int wireless_uci_data_load(sr_session_ctx_t *session)
 			error = srpo_uci_ucipath_to_xpath_convert(uci_path_list[j],
 													  wireless_xpath_uci_path_template_map,
 													  ARRAY_SIZE(wireless_xpath_uci_path_template_map),
-													  &xpath);
+													  &xpath_list.data, &xpath_list.size);
 
 			if (error && error != SRPO_UCI_ERR_NOT_FOUND) {
 				SRP_LOG_ERR("srpo_uci_to_xpath_path_convert error (%d): %s", error, srpo_uci_error_description_get(error));
@@ -257,7 +269,7 @@ static int wireless_uci_data_load(sr_session_ctx_t *session)
 			error = srpo_uci_transform_uci_data_cb_get(uci_path_list[j],
 													   wireless_xpath_uci_path_template_map,
 													   ARRAY_SIZE(wireless_xpath_uci_path_template_map),
-													   &transform_uci_data_cb);
+													   &uci_cb_list.data, &uci_cb_list.size);
 			if (error) {
 				SRP_LOG_ERR("srpo_uci_transfor_uci_data_cb_get error (%d): %s", error, srpo_uci_error_description_get(error));
 				goto error_out;
@@ -266,7 +278,7 @@ static int wireless_uci_data_load(sr_session_ctx_t *session)
 			error = srpo_uci_has_transform_uci_data_private_get(uci_path_list[j],
 																wireless_xpath_uci_path_template_map,
 																ARRAY_SIZE(wireless_xpath_uci_path_template_map),
-																&has_transform_uci_data_private);
+																&uci_has_pd.data, &uci_has_pd.size);
 			if (error) {
 				SRP_LOG_ERR("srpo_uci_has_transform_uci_data_private_get error (%d): %s", error, srpo_uci_error_description_get(error));
 				goto error_out;
@@ -274,29 +286,46 @@ static int wireless_uci_data_load(sr_session_ctx_t *session)
 
 			uci_section_name = srpo_uci_section_name_get(uci_path_list[j]);
 
-			error = srpo_uci_element_value_get(uci_path_list[j],
-											   transform_uci_data_cb,
-											   has_transform_uci_data_private ? uci_section_name : NULL,
-											   &uci_value_list, &uci_value_list_size);
-			if (error) {
-				SRP_LOG_ERR("srpo_uci_element_value_get error (%d): %s", error, srpo_uci_error_description_get(error));
+			if (xpath_list.size != uci_cb_list.size || xpath_list.size != uci_has_pd.size) {
 				goto error_out;
 			}
 
-			for (size_t k = 0; k < uci_value_list_size; k++) {
-				error = sr_set_item_str(session, xpath, uci_value_list[k], NULL, SR_EDIT_DEFAULT);
+			for (size_t k = 0; k < xpath_list.size; k++) {
+				error = srpo_uci_element_value_get(uci_path_list[j], uci_cb_list.data[k],
+												   uci_has_pd.data[k] ? uci_section_name : NULL,
+												   &uci_value_list, &uci_value_list_size);
 				if (error) {
-					SRP_LOG_ERR("sr_set_item_str error (%d): %s", error, sr_strerror(error));
+					SRP_LOG_ERR("srpo_uci_element_value_get error (%d): %s", error, srpo_uci_error_description_get(error));
 					goto error_out;
 				}
 
-				FREE_SAFE(uci_value_list[k]);
+				for (size_t l = 0; l < uci_value_list_size; l++) {
+					error = sr_set_item_str(session, xpath_list.data[k], uci_value_list[l], NULL, SR_EDIT_DEFAULT);
+					if (error) {
+						SRP_LOG_ERR("sr_set_item_str error (%d): %s", error, sr_strerror(error));
+						goto error_out;
+					}
+
+					FREE_SAFE(uci_value_list[l]);
+				}
 			}
 
+			for (size_t k = 0; k < xpath_list.size; k++) {
+				FREE_SAFE(xpath_list.data[k]);
+			}
+
+			FREE_SAFE(xpath_list.data);
+			FREE_SAFE(uci_has_pd.data);
+			FREE_SAFE(uci_cb_list.data);
 			FREE_SAFE(uci_section_name);
 			FREE_SAFE(uci_path_list[j]);
-			FREE_SAFE(xpath);
+
+			xpath_list.size = 0;
+			uci_has_pd.size = 0;
+			uci_cb_list.size = 0;
 		}
+
+		FREE_SAFE(uci_path_list);
 
 		/*
 		 * FIXME: libuci otherwise checks the context for existing file
@@ -310,9 +339,6 @@ static int wireless_uci_data_load(sr_session_ctx_t *session)
 		}
 	}
 
-	FREE_SAFE(uci_value_list);
-	FREE_SAFE(uci_path_list);
-
 	error = sr_apply_changes(session, 0, 0);
 	if (error) {
 		SRP_LOG_ERR("sr_apply_changes error (%d): %s", error, sr_strerror(error));
@@ -322,7 +348,12 @@ static int wireless_uci_data_load(sr_session_ctx_t *session)
 	goto out;
 
 error_out:
-	FREE_SAFE(xpath);
+	for (size_t i = 0; i < xpath_list.size; i++) {
+		FREE_SAFE(xpath_list.data[i]);
+	}
+	FREE_SAFE(xpath_list.data);
+	FREE_SAFE(uci_has_pd.data);
+	FREE_SAFE(uci_cb_list.data);
 	FREE_SAFE(uci_section_name);
 
 	for (size_t i = 0; i < uci_path_list_size; i++) {
@@ -380,6 +411,26 @@ static int wireless_module_change_cb(sr_session_ctx_t *session, const char *modu
 	srpo_uci_xpath_uci_template_map_t *template_map = NULL;
 	size_t template_map_size = 0;
 
+	struct {
+		char **data;
+		size_t size;
+	} ucipath_list = {0};
+
+	struct {
+		srpo_uci_transform_data_cb *data;
+		size_t size;
+	} sysrepo_cb_list = {0};
+
+	struct {
+		bool *data;
+		size_t size;
+	} sysrepo_has_pd = {0};
+
+	struct {
+		const char **data;
+		size_t size;
+	} uci_section_type_list = {0};
+
 	SRP_LOG_INF("module_name: %s, xpath: %s, event: %d, request_id: %" PRIu32, module_name, xpath, event, request_id);
 
 	if (event == SR_EV_ABORT) {
@@ -412,7 +463,7 @@ static int wireless_module_change_cb(sr_session_ctx_t *session, const char *modu
 			error = srpo_uci_xpath_to_ucipath_convert(node_xpath,
 													  wireless_xpath_uci_path_template_map,
 													  ARRAY_SIZE(wireless_xpath_uci_path_template_map),
-													  &uci_path);
+													  &ucipath_list.data, &ucipath_list.size);
 			if (error && error != SRPO_UCI_ERR_NOT_FOUND) {
 				SRP_LOG_ERR("srpo_uci_xpath_to_ucipath_convert error (%d): %s", error, srpo_uci_error_description_get(error));
 				goto error_out;
@@ -426,7 +477,7 @@ static int wireless_module_change_cb(sr_session_ctx_t *session, const char *modu
 			error = srpo_uci_transform_sysrepo_data_cb_get(node_xpath,
 														   wireless_xpath_uci_path_template_map,
 														   ARRAY_SIZE(wireless_xpath_uci_path_template_map),
-														   &transform_sysrepo_data_cb);
+														   &sysrepo_cb_list.data, &sysrepo_cb_list.size);
 			if (error) {
 				SRP_LOG_ERR("srpo_uci_transfor_sysrepo_data_cb_get error (%d): %s", error, srpo_uci_error_description_get(error));
 				goto error_out;
@@ -435,92 +486,107 @@ static int wireless_module_change_cb(sr_session_ctx_t *session, const char *modu
 			error = srpo_uci_has_transform_sysrepo_data_private_get(node_xpath,
 																	wireless_xpath_uci_path_template_map,
 																	ARRAY_SIZE(wireless_xpath_uci_path_template_map),
-																	&has_transform_sysrepo_data_private);
+																	&sysrepo_has_pd.data, &sysrepo_has_pd.size);
 			if (error) {
 				SRP_LOG_ERR("srpo_uci_has_transform_sysrepo_data_private_get error (%d): %s", error, srpo_uci_error_description_get(error));
 				goto error_out;
 			}
 
 			error = srpo_uci_section_type_get(uci_path, template_map, template_map_size,
-											  &uci_section_type);
+											  &uci_section_type_list.data, &uci_section_type_list.size);
 			if (error) {
 				SRP_LOG_ERR("srpo_uci_section_type_get error (%d): %s", error, srpo_uci_error_description_get(error));
 				goto error_out;
 			}
 
-			uci_section_name = srpo_uci_section_name_get(uci_path);
+			for (size_t i = 0; i < ucipath_list.size; i++) {
+				uci_section_type = uci_section_type_list.data[i];
+				uci_path = ucipath_list.data[i];
+				transform_sysrepo_data_cb = sysrepo_cb_list.data[i];
+				has_transform_sysrepo_data_private = sysrepo_has_pd.data[i];
+				uci_section_name = srpo_uci_section_name_get(uci_path);
 
-			if (node->schema->nodetype == LYS_LEAF || node->schema->nodetype == LYS_LEAFLIST) {
-				node_leaf_list = (struct lyd_node_leaf_list *) node;
-				node_value = node_leaf_list->value_str;
-				if (node_value == NULL) {
-					schema_node_leaf = (struct lys_node_leaf *) node_leaf_list->schema;
-					node_value = schema_node_leaf->dflt ? schema_node_leaf->dflt : "";
-				}
-			}
-
-			SRP_LOG_DBG("uci_path: %s; prev_val: %s; node_val: %s; operation: %d", uci_path, prev_value, node_value, operation);
-
-			if (node->schema->nodetype == LYS_LIST) {
-				if (operation == SR_OP_CREATED) {
-					error = srpo_uci_section_create(uci_path, uci_section_type);
-					if (error) {
-						SRP_LOG_ERR("srpo_uci_section_create error (%d): %s", error, srpo_uci_error_description_get(error));
-						goto error_out;
-					}
-				} else if (operation == SR_OP_DELETED) {
-					error = srpo_uci_section_delete(uci_path);
-					if (error) {
-						SRP_LOG_ERR("srpo_uci_section_delete error (%d): %s", error, srpo_uci_error_description_get(error));
-						goto error_out;
+				if (node->schema->nodetype == LYS_LEAF || node->schema->nodetype == LYS_LEAFLIST) {
+					node_leaf_list = (struct lyd_node_leaf_list *) node;
+					node_value = node_leaf_list->value_str;
+					if (node_value == NULL) {
+						schema_node_leaf = (struct lys_node_leaf *) node_leaf_list->schema;
+						node_value = schema_node_leaf->dflt ? schema_node_leaf->dflt : "";
 					}
 				}
-			} else if (node->schema->nodetype == LYS_LEAF) {
-				if (operation == SR_OP_CREATED || operation == SR_OP_MODIFIED) {
+
+				SRP_LOG_DBG("uci_path: %s; prev_val: %s; node_val: %s; operation: %d", uci_path, prev_value, node_value, operation);
+
+				if (node->schema->nodetype == LYS_LIST) {
+					if (operation == SR_OP_CREATED) {
+						error = srpo_uci_section_create(uci_path, uci_section_type);
+						if (error) {
+							SRP_LOG_ERR("srpo_uci_section_create error (%d): %s", error, srpo_uci_error_description_get(error));
+							goto error_out;
+						}
+					} else if (operation == SR_OP_DELETED) {
+						error = srpo_uci_section_delete(uci_path);
+						if (error) {
+							SRP_LOG_ERR("srpo_uci_section_delete error (%d): %s", error, srpo_uci_error_description_get(error));
+							goto error_out;
+						}
+					}
+				} else if (node->schema->nodetype == LYS_LEAF) {
+					if (operation == SR_OP_CREATED || operation == SR_OP_MODIFIED) {
+						if (has_transform_sysrepo_data_private) {
+							transform_cb_data = uci_section_name;
+						} else {
+							transform_cb_data = NULL;
+						}
+
+						error = srpo_uci_option_set(uci_path, node_value, transform_sysrepo_data_cb, transform_cb_data);
+						if (error) {
+							SRP_LOG_ERR("srpo_uci_option_set error (%d): %s", error, srpo_uci_error_description_get(error));
+							goto error_out;
+						}
+					} else if (operation == SR_OP_DELETED) {
+						error = srpo_uci_option_remove(uci_path);
+						if (error) {
+							SRP_LOG_ERR("srpo_uci_option_remove error (%d): %s", error, srpo_uci_error_description_get(error));
+							goto error_out;
+						}
+					}
+				} else if (node->schema->nodetype == LYS_LEAFLIST) {
 					if (has_transform_sysrepo_data_private) {
 						transform_cb_data = uci_section_name;
 					} else {
 						transform_cb_data = NULL;
 					}
 
-					error = srpo_uci_option_set(uci_path, node_value, transform_sysrepo_data_cb, transform_cb_data);
-					if (error) {
-						SRP_LOG_ERR("srpo_uci_option_set error (%d): %s", error, srpo_uci_error_description_get(error));
-						goto error_out;
-					}
-				} else if (operation == SR_OP_DELETED) {
-					error = srpo_uci_option_remove(uci_path);
-					if (error) {
-						SRP_LOG_ERR("srpo_uci_option_remove error (%d): %s", error, srpo_uci_error_description_get(error));
-						goto error_out;
-					}
-				}
-			} else if (node->schema->nodetype == LYS_LEAFLIST) {
-				if (has_transform_sysrepo_data_private) {
-					transform_cb_data = uci_section_name;
-				} else {
-					transform_cb_data = NULL;
-				}
-
-				if (operation == SR_OP_CREATED) {
-					error = srpo_uci_list_set(uci_path, node_value, transform_sysrepo_data_cb, transform_cb_data);
-					if (error) {
-						SRP_LOG_ERR("srpo_uci_list_set error (%d): %s", error, srpo_uci_error_description_get(error));
-						goto error_out;
-					}
-				} else if (operation == SR_OP_DELETED) {
-					error = srpo_uci_list_remove(uci_path, node_value);
-					if (error) {
-						SRP_LOG_ERR("srpo_uci_list_remove error (%d): %s", error, srpo_uci_error_description_get(error));
-						goto error_out;
+					if (operation == SR_OP_CREATED) {
+						error = srpo_uci_list_set(uci_path, node_value, transform_sysrepo_data_cb, transform_cb_data);
+						if (error) {
+							SRP_LOG_ERR("srpo_uci_list_set error (%d): %s", error, srpo_uci_error_description_get(error));
+							goto error_out;
+						}
+					} else if (operation == SR_OP_DELETED) {
+						error = srpo_uci_list_remove(uci_path, node_value);
+						if (error) {
+							SRP_LOG_ERR("srpo_uci_list_remove error (%d): %s", error, srpo_uci_error_description_get(error));
+							goto error_out;
+						}
 					}
 				}
 			}
 
-			FREE_SAFE(uci_section_name);
-			FREE_SAFE(uci_path);
 			FREE_SAFE(node_xpath);
 			node_value = NULL;
+
+			// once done => free current data
+			for (size_t i = 0; i < ucipath_list.size; i++) {
+				FREE_SAFE(ucipath_list.data[i]);
+			}
+
+			FREE_SAFE(ucipath_list.data);
+			FREE_SAFE(sysrepo_has_pd.data);
+			FREE_SAFE(sysrepo_cb_list.data);
+
+			ucipath_list.size = sysrepo_cb_list.size = sysrepo_has_pd.size = 0;
 		}
 
 		srpo_uci_commit("wireless");
@@ -532,9 +598,18 @@ error_out:
 	srpo_uci_revert("wireless");
 
 out:
-	FREE_SAFE(uci_section_name);
 	FREE_SAFE(node_xpath);
-	FREE_SAFE(uci_path);
+	FREE_SAFE(uci_section_name);
+
+	for (size_t i = 0; i < ucipath_list.size; i++) {
+		FREE_SAFE(uci_path);
+	}
+
+	FREE_SAFE(ucipath_list.data);
+	FREE_SAFE(sysrepo_has_pd.data);
+	FREE_SAFE(sysrepo_cb_list.data);
+
+	ucipath_list.size = sysrepo_cb_list.size = sysrepo_has_pd.size = 0;
 	sr_free_change_iter(wireless_module_change_iter);
 
 	return error ? SR_ERR_CALLBACK_FAILED : SR_ERR_OK;
